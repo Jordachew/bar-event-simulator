@@ -164,15 +164,27 @@ td input[type="text"] { min-width:120px; }
       <div class="header-sub">
         <span class="sync-dot" id="syncDot"></span>
         <span id="syncLabel">Connecting...</span>
-        <span class="session-badge" id="sessionBadge" onclick="copyShareLink()" title="Click to copy shareable link"></span>
+        <span class="session-badge" id="sessionBadge" onclick="shareSession()" title="Click to copy share link"></span>
         <div class="presence-bar" id="presenceBar"></div>
       </div>
     </div>
     <div class="header-actions">
-      <button class="btn btn-ghost btn-sm" id="shareBtn">🔗 Share Link</button>
+      <button class="btn btn-primary btn-sm" id="shareBtn">🔗 Share &amp; Collaborate</button>
       <button class="btn btn-ghost btn-sm" id="printBtn">🖨 Print</button>
       <button class="btn btn-ghost btn-sm" id="exportBtn">Export CSV</button>
       <button class="btn btn-ghost btn-sm" id="newSessionBtn">New Session</button>
+    </div>
+  </div>
+
+  <!-- Share banner — shown on first load -->
+  <div id="shareBanner" style="display:none; background:rgba(232,153,58,0.12); border:1px solid rgba(232,153,58,0.3); border-radius:12px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+    <div>
+      <span style="font-size:13px; font-weight:600; color:var(--amber);">👥 To collaborate in real time — share this link with your team:</span>
+      <div id="shareUrl" style="font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:4px; word-break:break-all;"></div>
+    </div>
+    <div style="display:flex; gap:8px; flex-shrink:0;">
+      <button class="btn btn-primary btn-sm" onclick="shareSession()">Copy Link</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('shareBanner').style.display='none'">✕</button>
     </div>
   </div>
 
@@ -500,22 +512,31 @@ async function loadSession(id) {
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
 
+  // Show share banner so users know to share the link for collaboration
+  const shareUrl = window.location.href;
+  const banner = document.getElementById('shareBanner');
+  const urlEl = document.getElementById('shareUrl');
+  if (urlEl) urlEl.textContent = shareUrl;
+  if (banner) banner.style.display = 'flex';
+
   render();
   subscribeRealtime();
 }
 
-// ── Copy share link ──────────────────────────────────────────────────────────
-function copyShareLink() {
+function shareSession() {
   const url = new URL(window.location.href);
   url.searchParams.set('s', sessionId);
-  navigator.clipboard.writeText(url.toString()).then(() => {
+  const shareUrl = url.toString();
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    // Update all share UI to confirm
+    const btn = document.getElementById('shareBtn');
     const badge = document.getElementById('sessionBadge');
-    badge.textContent = 'Link copied!';
-    setTimeout(() => badge.textContent = sessionId, 2000);
+    if (btn) { btn.textContent = '✓ Link Copied!'; setTimeout(() => btn.textContent = '🔗 Share & Collaborate', 2000); }
+    if (badge) { badge.textContent = 'Copied!'; setTimeout(() => badge.textContent = sessionId, 2000); }
   });
 }
 
-// ── Auto-init on page load ────────────────────────────────────────────────────
+document.getElementById('shareBtn').addEventListener('click', shareSession);
 // ── Auto-init on page load ────────────────────────────────────────────────────
 let initCalled = false;
 async function init() {
