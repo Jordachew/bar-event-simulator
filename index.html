@@ -436,48 +436,88 @@ async function deleteExpense(id) {
 
 function debounceSave(id, fn) {
   clearTimeout(saveTimers[id]);
-  saveTimers[id] = setTimeout(fn, 600);
+  saveTimers[id] = setTimeout(fn, 300);
 }
 
 // ── Realtime subscription ────────────────────────────────────────────────────
 function subscribeRealtime() {
   if (channel) sb.removeChannel(channel);
 
-  channel = sb.channel(`session:${sessionId}`)
-    .on('postgres_changes', { event:'*', schema:'public', table:'bar_products', filter:`session_id=eq.${sessionId}` },
-      payload => {
-        const { eventType, new: n, old: o } = payload;
-        if (eventType === 'DELETE') {
-          products = products.filter(p => p.id !== o.id);
-        } else {
-          const idx = products.findIndex(p => p.id === n.id);
-          if (idx >= 0) products[idx] = n; else products.push(n);
-        }
+  channel = sb.channel(`room:${sessionId}`, {
+    config: { broadcast: { self: false } }
+  })
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'bar_products',
+      filter: `session_id=eq.${sessionId}`
+    }, payload => {
+      const { eventType, new: n, old: o } = payload;
+      // Skip if this is an update we just saved ourselves (same content)
+      const focused = document.activeElement;
+      const focusedId = focused?.dataset?.id;
+
+      if (eventType === 'DELETE') {
+        products = products.filter(p => p.id !== o.id);
         render();
-      })
-    .on('postgres_changes', { event:'*', schema:'public', table:'bar_expenses', filter:`session_id=eq.${sessionId}` },
-      payload => {
-        const { eventType, new: n, old: o } = payload;
-        if (eventType === 'DELETE') {
-          expenses = expenses.filter(e => e.id !== o.id);
+      } else if (n) {
+        const idx = products.findIndex(p => p.id === n.id);
+        if (idx >= 0) {
+          // Only update if not currently editing this row
+          if (focusedId !== n.id) {
+            products[idx] = n;
+            render();
+          } else {
+            // Merge non-focused fields silently
+            Object.assign(products[idx], n);
+            updateCalcCells();
+          }
         } else {
-          const idx = expenses.findIndex(e => e.id === n.id);
-          if (idx >= 0) expenses[idx] = n; else expenses.push(n);
+          products.push(n);
+          render();
         }
+      }
+    })
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'bar_expenses',
+      filter: `session_id=eq.${sessionId}`
+    }, payload => {
+      const { eventType, new: n, old: o } = payload;
+      const focusedId = document.activeElement?.dataset?.id;
+
+      if (eventType === 'DELETE') {
+        expenses = expenses.filter(e => e.id !== o.id);
         render();
-      })
-    .on('presence', { event:'sync' }, () => {
+      } else if (n) {
+        const idx = expenses.findIndex(e => e.id === n.id);
+        if (idx >= 0) {
+          if (focusedId !== n.id) {
+            expenses[idx] = n;
+            render();
+          } else {
+            Object.assign(expenses[idx], n);
+            updateCalcCells();
+          }
+        } else {
+          expenses.push(n);
+          render();
+        }
+      }
+    })
+    .on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState();
-      const presenceBar = document.getElementById('presenceBar');
       const users = Object.values(state).flat();
-      presenceBar.innerHTML = users.map(u =>
+      document.getElementById('presenceBar').innerHTML = users.map(u =>
         `<div class="avatar" style="background:${u.color}" title="${u.name}">${u.name[0]}</div>`
       ).join('');
     })
     .subscribe(async status => {
+      console.log('Realtime status:', status);
       if (status === 'SUBSCRIBED') {
         setSyncState('live');
         await channel.track({ name: myName, color: myColor });
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        setSyncState('error');
+        // Retry after 3s
+        setTimeout(subscribeRealtime, 3000);
       }
     });
 }
