@@ -164,27 +164,12 @@ td input[type="text"] { min-width:120px; }
       <div class="header-sub">
         <span class="sync-dot" id="syncDot"></span>
         <span id="syncLabel">Connecting...</span>
-        <span class="session-badge" id="sessionBadge" onclick="shareSession()" title="Click to copy share link"></span>
         <div class="presence-bar" id="presenceBar"></div>
       </div>
     </div>
     <div class="header-actions">
-      <button class="btn btn-primary btn-sm" id="shareBtn">🔗 Share &amp; Collaborate</button>
       <button class="btn btn-ghost btn-sm" id="printBtn">🖨 Print</button>
       <button class="btn btn-ghost btn-sm" id="exportBtn">Export CSV</button>
-      <button class="btn btn-ghost btn-sm" id="newSessionBtn">New Session</button>
-    </div>
-  </div>
-
-  <!-- Share banner — always visible so users know how to collaborate -->
-  <div id="shareBanner" style="background:rgba(232,153,58,0.12); border:1px solid rgba(232,153,58,0.3); border-radius:12px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-    <div>
-      <span style="font-size:13px; font-weight:600; color:var(--amber);">👥 Share this link to collaborate in real time:</span>
-      <div id="shareUrl" style="font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:4px; word-break:break-all;"></div>
-    </div>
-    <div style="display:flex; gap:8px; flex-shrink:0;">
-      <button class="btn btn-primary btn-sm" onclick="shareSession()">Copy Link</button>
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('shareBanner').style.display='none'">✕</button>
     </div>
   </div>
 
@@ -532,33 +517,12 @@ async function loadSession(id) {
     sb.from('bar_expenses').select('*').eq('session_id', id).order('sort_order'),
   ]);
 
-  if (pe) console.error('Products load error:', pe);
-  if (ee) console.error('Expenses load error:', ee);
+  if (pe) throw new Error('Failed to load products: ' + pe.message);
+  if (ee) throw new Error('Failed to load expenses: ' + ee.message);
 
   products = pd || [];
   expenses = ed || [];
 
-  // Update URL with session code (works on https, silently fails on file://)
-  try {
-    const url = new URL(window.location.href);
-    url.searchParams.set('s', id);
-    window.history.replaceState({}, '', url.toString());
-  } catch(e) {}
-
-  document.getElementById('sessionBadge').textContent = id;
-  localStorage.setItem('bar_session_id', id);
-
-  // Build the share URL with session code
-  const shareUrl = `${window.location.origin}${window.location.pathname}?s=${id}`;
-
-  // Update browser URL
-  try { window.history.replaceState({}, '', shareUrl); } catch(e) {}
-
-  // Show share URL in banner
-  const urlEl = document.getElementById('shareUrl');
-  if (urlEl) urlEl.textContent = shareUrl;
-
-  // Hide loading, show app
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
 
@@ -566,80 +530,7 @@ async function loadSession(id) {
   subscribeRealtime();
 }
 
-function shareSession() {
-  const url = new URL(window.location.href);
-  url.searchParams.set('s', sessionId);
-  const shareUrl = url.toString();
-  navigator.clipboard.writeText(shareUrl).then(() => {
-    // Update all share UI to confirm
-    const btn = document.getElementById('shareBtn');
-    const badge = document.getElementById('sessionBadge');
-    if (btn) { btn.textContent = '✓ Link Copied!'; setTimeout(() => btn.textContent = '🔗 Share & Collaborate', 2000); }
-    if (badge) { badge.textContent = 'Copied!'; setTimeout(() => badge.textContent = sessionId, 2000); }
-  });
-}
 
-document.getElementById('shareBtn').addEventListener('click', shareSession);
-// ── Auto-init on page load ────────────────────────────────────────────────────
-let initCalled = false;
-async function init() {
-  if (initCalled) return;
-  initCalled = true;
-
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const codeFromUrl = params.get('s');
-    const codeFromStorage = localStorage.getItem('bar_session_id');
-    const code = codeFromUrl || codeFromStorage;
-
-    if (code) {
-      document.getElementById('loadingText').textContent = 'Loading your session...';
-      const { data } = await sb.from('bar_sessions').select('id').eq('id', code).maybeSingle();
-      if (data) {
-        await loadSession(code);
-        return;
-      }
-      localStorage.removeItem('bar_session_id');
-    }
-
-    document.getElementById('loadingText').textContent = 'Setting up your session...';
-    const { data: session, error } = await sb.from('bar_sessions').insert({ name: 'Bar Event Plan' }).select().single();
-    if (error || !session) throw new Error(error?.message || 'Failed to create session');
-
-    const pRows = DEFAULT_PRODUCTS.map((p,i) => ({ ...p, id: makeId(), session_id: session.id, sort_order: i }));
-    const eRows = DEFAULT_EXPENSES.map((e,i) => ({ ...e, id: makeId(), session_id: session.id, sort_order: i }));
-    await Promise.all([
-      sb.from('bar_products').insert(pRows),
-      sb.from('bar_expenses').insert(eRows),
-    ]);
-
-    await loadSession(session.id);
-
-  } catch(err) {
-    console.error('Init failed:', err);
-    document.getElementById('loadingText').textContent = '⚠️ ' + err.message + ' — please refresh.';
-  }
-}
-
-// ── Button handlers ──────────────────────────────────────────────────────────
-document.getElementById('shareBtn').addEventListener('click', () => {
-  const url = new URL(window.location.href);
-  url.searchParams.set('s', sessionId);
-  navigator.clipboard.writeText(url.toString()).then(() => {
-    const btn = document.getElementById('shareBtn');
-    btn.textContent = '✓ Copied!';
-    setTimeout(() => btn.textContent = '🔗 Share Link', 2000);
-  });
-});
-
-
-document.getElementById('newSessionBtn').addEventListener('click', async () => {
-  if (!confirm('Start a fresh session? This will create a new blank plan.')) return;
-  localStorage.removeItem('bar_session_id');
-  const url = new URL(window.location.href);
-  url.searchParams.delete('s');
-  window.location.href = url.toString();
-});
 
 const DEFAULT_PRODUCTS = [
   { name:"Wray and Nephew 200ml",  units:48,  bpc:48, price:1500, case_cost:48000,  upfront:0 },
