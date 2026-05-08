@@ -649,6 +649,14 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await loadSession('shared');
+  } catch(err) {
+    console.error('Init failed:', err);
+    document.getElementById('loadingText').textContent = '⚠️ ' + err.message + ' — please refresh.';
+  }
+}
 init();
 </script>
 </body>
