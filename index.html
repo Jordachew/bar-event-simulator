@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bar Event Profit Simulator</title>
+document.addEventListener('DOMContentLoaded', init);
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -514,32 +515,38 @@ function copyShareLink() {
 }
 
 // ── Auto-init on page load ────────────────────────────────────────────────────
+// ── Auto-init on page load ────────────────────────────────────────────────────
+let initCalled = false;
 async function init() {
+  if (initCalled) return;  // prevent double-call
+  initCalled = true;
+
   try {
     const params = new URLSearchParams(window.location.search);
     const codeFromUrl = params.get('s');
 
     if (codeFromUrl) {
       document.getElementById('loadingText').textContent = 'Joining session...';
-      const { data, error } = await sb.from('bar_sessions').select('id').eq('id', codeFromUrl).single();
-      if (data && !error) {
+      // Use maybeSingle() instead of single() — returns null instead of 406 when not found
+      const { data } = await sb.from('bar_sessions').select('id').eq('id', codeFromUrl).maybeSingle();
+      if (data) {
         await loadSession(codeFromUrl);
         return;
       }
+      // Session not found — create a new one
+      document.getElementById('loadingText').textContent = 'Session not found, creating new...';
     }
 
-    document.getElementById('loadingText').textContent = 'Creating your session...';
+    document.getElementById('loadingText').textContent = 'Setting up your session...';
     const { data: session, error } = await sb.from('bar_sessions').insert({ name: 'Bar Event Plan' }).select().single();
     if (error || !session) throw new Error('Failed to create session: ' + (error?.message || 'unknown'));
 
     const pRows = DEFAULT_PRODUCTS.map((p,i) => ({ ...p, id: makeId(), session_id: session.id, sort_order: i }));
     const eRows = DEFAULT_EXPENSES.map((e,i) => ({ ...e, id: makeId(), session_id: session.id, sort_order: i }));
-    const [{ error: pe }, { error: ee }] = await Promise.all([
+    await Promise.all([
       sb.from('bar_products').insert(pRows),
       sb.from('bar_expenses').insert(eRows),
     ]);
-    if (pe) throw new Error('Failed to insert products: ' + pe.message);
-    if (ee) throw new Error('Failed to insert expenses: ' + ee.message);
 
     await loadSession(session.id);
 
@@ -609,7 +616,6 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
-init();
 document.addEventListener('input', e => {
   const el = e.target;
   const kind = el.dataset.kind, id = el.dataset.id, f = el.dataset.f;
@@ -675,7 +681,7 @@ document.getElementById('exportBtn').addEventListener('click', () => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
-init();
+document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
