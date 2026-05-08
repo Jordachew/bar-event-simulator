@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bar Event Profit Simulator</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f0d0b; --surface: #1a1612; --surface2: #231f1a; --surface3: #2d2720;
+  --line: rgba(255,255,255,0.07); --line2: rgba(255,255,255,0.12);
+  --ink: #f5f0e8; --muted: #8a7d6e;
+  --amber: #e8993a; --green: #4caf7d; --red: #e05c4b;
+  --sans: 'DM Sans', sans-serif; --mono: 'DM Mono', monospace;
+  --r: 12px; --r-lg: 18px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-height: 100vh; font-size: 14px; }
+
+/* ── Loading overlay ── */
+#loadingScreen {
+  position: fixed; inset: 0; background: var(--bg); z-index: 100;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+}
+#loadingScreen.hidden { display: none; }
+.loading-logo { font-size: 48px; }
+.loading-text { color: var(--muted); font-size: 14px; }
+
+/* ── App ── */
+#appScreen { display: none; }
+.app { max-width: 1280px; margin: 0 auto; padding: 20px 20px 60px; }
+
+/* ── Header ── */
+.header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:12px; flex-wrap:wrap; }
+.header-left { display:flex; flex-direction:column; gap:3px; }
+.header-title { font-size:20px; font-weight:700; }
+.header-sub { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+.header-actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+/* ── Sync indicator ── */
+.sync-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); display:inline-block; transition:background 0.3s; }
+.sync-dot.live { background:var(--green); animation:pulse 2s infinite; }
+.sync-dot.saving { background:var(--amber); animation:blink 0.5s infinite; }
+.sync-dot.error { background:var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.session-badge {
+  background: var(--surface2); border: 1px solid var(--line2); border-radius: 8px;
+  padding: 4px 10px; font-family: var(--mono); font-size: 12px; color: var(--amber);
+  cursor: pointer; user-select: all; title: "Click to copy";
+}
+.session-badge:hover { border-color: var(--amber); }
+
+/* ── KPI Strip ── */
+.kpi-strip { display:grid; grid-template-columns:repeat(6,1fr); gap:2px; background:var(--line); border-radius:var(--r-lg); overflow:hidden; margin-bottom:20px; }
+.kpi { background:var(--surface); padding:16px; display:flex; flex-direction:column; gap:3px; }
+.kpi:first-child { border-radius:var(--r-lg) 0 0 var(--r-lg); }
+.kpi:last-child  { border-radius:0 var(--r-lg) var(--r-lg) 0; }
+.kpi-label { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); }
+.kpi-value { font-family:var(--mono); font-size:18px; font-weight:500; }
+.kpi-note  { font-size:11px; color:var(--muted); }
+.pos { color:var(--green); } .neg { color:var(--red); } .amb { color:var(--amber); }
+
+/* ── Cards ── */
+.card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; margin-bottom:14px; }
+.card-head { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); gap:10px; flex-wrap:wrap; }
+.card-title { font-size:13px; font-weight:700; }
+.card-sub   { font-size:11px; color:var(--muted); margin-top:2px; }
+
+/* ── Table ── */
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; min-width:860px; }
+thead th { padding:9px 11px; text-align:left; font-size:10px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted); background:var(--surface2); border-bottom:1px solid var(--line); white-space:nowrap; }
+th.r, td.r { text-align:right; }
+tbody tr { border-bottom:1px solid var(--line); }
+tbody tr:last-child { border-bottom:none; }
+tbody tr:hover { background:var(--surface2); }
+td { padding:7px 11px; vertical-align:middle; }
+
+td input[type="text"], td input[type="number"], td select {
+  background:var(--surface3); border:1px solid transparent; border-radius:6px;
+  color:var(--ink); font-family:var(--sans); font-size:13px; padding:5px 8px;
+  width:100%; outline:none; -moz-appearance:textfield; transition:border-color 0.15s;
+}
+td input[type="number"] { font-family:var(--mono); text-align:right; }
+td input::-webkit-outer-spin-button, td input::-webkit-inner-spin-button { -webkit-appearance:none; }
+td input:focus, td select:focus { border-color:var(--amber); background:rgba(232,153,58,0.05); }
+td input.sm { width:76px; }
+td input[type="text"] { min-width:120px; }
+
+.mono { font-family:var(--mono); font-size:13px; }
+.calc { color:var(--muted); }
+.empty { padding:28px; text-align:center; color:var(--muted); font-size:13px; }
+
+/* ── Cases grid ── */
+.cases-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:8px; padding:14px 18px; }
+.case-pill { background:var(--surface2); border:1px solid var(--line); border-radius:var(--r); padding:10px 12px; }
+.case-name { font-size:11px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.case-num  { font-family:var(--mono); font-size:17px; font-weight:500; color:var(--amber); }
+.case-sub  { font-size:10px; color:var(--muted); font-family:var(--mono); }
+
+/* ── Buttons ── */
+.btn { display:inline-flex; align-items:center; gap:5px; padding:6px 13px; border-radius:var(--r); font-family:var(--sans); font-size:13px; font-weight:600; cursor:pointer; border:none; transition:all 0.15s; white-space:nowrap; }
+.btn-primary { background:var(--amber); color:#1a0f00; }
+.btn-primary:hover { background:#f0a84a; }
+.btn-ghost { background:var(--surface3); color:var(--ink); border:1px solid var(--line2); }
+.btn-ghost:hover { border-color:var(--amber); color:var(--amber); }
+.btn-danger { background:transparent; color:var(--red); border:1px solid rgba(224,92,75,0.25); padding:4px 9px; font-size:12px; }
+.btn-danger:hover { background:rgba(224,92,75,0.1); }
+.btn-sm { padding:5px 10px; font-size:12px; }
+.btn-full { width:100%; justify-content:center; padding:12px; font-size:14px; }
+
+/* ── Presence avatars ── */
+.presence-bar { display:flex; align-items:center; gap:6px; }
+.avatar { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; border:2px solid var(--bg); margin-left:-6px; }
+.avatar:first-child { margin-left:0; }
+
+/* ── Print ── */
+.print-val { display:none; }
+@media print {
+  @page { margin:12mm; size:A4 landscape; }
+  body { background:#fff; color:#000; font-size:10px; }
+  .app { padding:0; }
+  #sessionScreen { display:none !important; }
+  .btn, .header-actions, .presence-bar, td input, td select { display:none !important; }
+  .print-val { display:inline; }
+  .header-title { font-size:16px; color:#000; }
+  .header-sub { color:#666; }
+  .kpi-strip { background:#eee; gap:1px; margin-bottom:10px; }
+  .kpi { background:#fff; padding:10px 12px; }
+  .kpi-label { color:#666; } .kpi-value { font-size:13px; color:#000; }
+  .kpi-value.pos { color:#1a6b3c; } .kpi-value.neg { color:#b5392f; } .kpi-value.amb { color:#9a6200; }
+  .card { background:#fff; border:1px solid #ccc; border-radius:6px; margin-bottom:8px; }
+  .card-head { border-bottom:1px solid #ddd; padding:7px 12px; }
+  .card-title { color:#000; font-size:12px; }
+  thead th { background:#f0f0f0; color:#444; border-bottom:1px solid #ccc; font-size:9px; padding:5px 8px; }
+  td { padding:4px 8px; color:#000; border-bottom:1px solid #eee; font-size:10px; }
+  .mono { font-family:monospace; } .calc { color:#666; }
+  .pos { color:#1a6b3c !important; } .neg { color:#b5392f !important; }
+  .cases-grid { grid-template-columns:repeat(6,1fr); gap:5px; padding:10px 12px; }
+  .case-pill { background:#f9f9f9; border:1px solid #ddd; border-radius:4px; padding:7px 9px; }
+  .case-name { color:#000; } .case-num { color:#9a6200; font-size:13px; }
+}
+@media (max-width:900px) { .kpi-strip { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:600px) { .kpi-strip { grid-template-columns:repeat(2,1fr); } }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loadingScreen">
+  <div class="loading-logo">🍹</div>
+  <div class="loading-text" id="loadingText">Setting up your session...</div>
+</div>
+
+<!-- ── Main App ── -->
+<div id="appScreen">
+<div class="app">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="header-title">🍹 Bar Event Profit Simulator</div>
+      <div class="header-sub">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncLabel">Connecting...</span>
+        <span class="session-badge" id="sessionBadge" onclick="copyShareLink()" title="Click to copy shareable link"></span>
+        <div class="presence-bar" id="presenceBar"></div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-ghost btn-sm" id="shareBtn">🔗 Share Link</button>
+      <button class="btn btn-ghost btn-sm" id="printBtn">🖨 Print</button>
+      <button class="btn btn-ghost btn-sm" id="exportBtn">Export CSV</button>
+      <button class="btn btn-ghost btn-sm" id="newSessionBtn">New Session</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value" id="kpiRevenue">$0</div><div class="kpi-note" id="kpiUnits">0 units</div></div>
+    <div class="kpi"><div class="kpi-label">Cost of Goods</div><div class="kpi-value" id="kpiCogs">$0</div><div class="kpi-note">Stock cost</div></div>
+    <div class="kpi"><div class="kpi-label">Gross Profit</div><div class="kpi-value" id="kpiGross">$0</div><div class="kpi-note" id="kpiMargin">0% margin</div></div>
+    <div class="kpi"><div class="kpi-label">Expenses</div><div class="kpi-value" id="kpiExp">$0</div><div class="kpi-note">Event costs</div></div>
+    <div class="kpi"><div class="kpi-label">Net Profit</div><div class="kpi-value" id="kpiNet">$0</div><div class="kpi-note">After all costs</div></div>
+    <div class="kpi"><div class="kpi-label">Upfront Cash</div><div class="kpi-value" id="kpiUpfront">$0</div><div class="kpi-note" id="kpiAfter">$0 after event</div></div>
+  </div>
+
+  <!-- Products -->
+  <div class="card">
+    <div class="card-head">
+      <div><div class="card-title">Products</div><div class="card-sub">Enter selling price, case cost and units sold</div></div>
+      <button class="btn btn-primary btn-sm" id="addProductBtn">+ Add Product</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Product</th><th class="r">Selling Price</th><th class="r">Cost / Case</th>
+          <th class="r">Cost / Unit</th><th class="r">Profit / Unit</th><th class="r">Upfront %</th>
+          <th class="r">Units Sold</th><th class="r">Btls / Case</th><th class="r">Cases Needed</th>
+          <th class="r">Revenue</th><th class="r">Gross Profit</th><th></th>
+        </tr></thead>
+        <tbody id="productsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Cases -->
+  <div class="card">
+    <div class="card-head"><div><div class="card-title">Cases to Order</div><div class="card-sub">Based on units sold and bottles per case</div></div></div>
+    <div class="cases-grid" id="casesGrid"></div>
+  </div>
+
+  <!-- Expenses -->
+  <div class="card">
+    <div class="card-head">
+      <div><div class="card-title">Expenses</div><div class="card-sub">Staffing, rentals, permits and other event costs</div></div>
+      <button class="btn btn-primary btn-sm" id="addExpenseBtn">+ Add Expense</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Expense Item</th><th>Category</th><th class="r">Qty</th>
+          <th class="r">Unit Cost</th><th class="r">Upfront %</th><th class="r">Total</th><th></th>
+        </tr></thead>
+        <tbody id="expensesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+// ── Supabase ────────────────────────────────────────────────────────────────
+const SB_URL = 'https://bhrswnbenkvflpdjhfpa.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJocnN3bmJlbmt2ZmxwZGpoZnBhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMTc0OTcsImV4cCI6MjA5MTg5MzQ5N30.JupFs0tnMn3k282PqFOSMi2ch-wtB7Ewv7O8fN16-94';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+// ── State ───────────────────────────────────────────────────────────────────
+let sessionId = null;
+let products = [];
+let expenses = [];
+let saveTimers = {};
+let channel = null;
+let presenceColors = ['#e8993a','#4caf7d','#7c9fe8','#e05c4b','#b07cd4','#4db5c4'];
+let myColor = presenceColors[Math.floor(Math.random() * presenceColors.length)];
+let myName = 'User' + Math.floor(Math.random() * 900 + 100);
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function makeId() { return Math.random().toString(36).slice(2, 10); }
+function toNum(v) { const n = Number(v); return isNaN(n) ? 0 : n; }
+function fmt(v) { return '$' + Math.abs(toNum(v)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtN(v) { return Math.ceil(toNum(v)).toLocaleString('en-US'); }
+function esc(v) { return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function setSyncState(state) {
+  const dot = document.getElementById('syncDot');
+  const lbl = document.getElementById('syncLabel');
+  dot.className = 'sync-dot ' + state;
+  lbl.textContent = state === 'live' ? 'Live' : state === 'saving' ? 'Saving...' : state === 'error' ? 'Offline' : 'Connecting...';
+}
+
+function copySessionCode() {
+  navigator.clipboard.writeText(sessionId).then(() => {
+    const badge = document.getElementById('sessionBadge');
+    badge.textContent = 'Copied!';
+    setTimeout(() => badge.textContent = sessionId, 1500);
+  });
+}
+
+// ── Calculations ────────────────────────────────────────────────────────────
+function calcProduct(p) {
+  const units = toNum(p.units), bpc = toNum(p.bpc)||24, caseCost = toNum(p.case_cost);
+  const unitCost = bpc > 0 ? caseCost/bpc : 0;
+  const revenue = units * toNum(p.price);
+  const cogs = units * unitCost;
+  return { ...p, units, bpc, unitCost, revenue, cogs,
+    grossProfit: revenue - cogs, profitPerUnit: toNum(p.price) - unitCost,
+    casesNeeded: Math.ceil(units/bpc), upfrontCash: cogs*(toNum(p.upfront)/100) };
+}
+function calcExpense(e) {
+  const amount = toNum(e.qty) * toNum(e.unit_cost);
+  return { ...e, amount, upfrontCash: amount*(toNum(e.upfront)/100) };
+}
+function getTotals() {
+  const pp = products.map(calcProduct), ee = expenses.map(calcExpense);
+  const revenue = pp.reduce((s,p)=>s+p.revenue,0), cogs = pp.reduce((s,p)=>s+p.cogs,0);
+  const totalExp = ee.reduce((s,e)=>s+e.amount,0);
+  const upfront = pp.reduce((s,p)=>s+p.upfrontCash,0) + ee.reduce((s,e)=>s+e.upfrontCash,0);
+  const afterEvent = pp.reduce((s,p)=>s+(p.cogs-p.upfrontCash),0) + ee.reduce((s,e)=>s+(e.amount-e.upfrontCash),0);
+  return { pp, ee, revenue, cogs, grossProfit:revenue-cogs, totalExp,
+    netProfit:revenue-cogs-totalExp, upfront, afterEvent,
+    totalUnits: pp.reduce((s,p)=>s+p.units,0) };
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  const t = getTotals();
+
+  // KPIs
+  const sk = (id,val,cls) => { const el=document.getElementById(id); el.textContent=fmt(val); el.className='kpi-value'+(cls?' '+cls:''); };
+  sk('kpiRevenue',t.revenue); sk('kpiCogs',t.cogs);
+  sk('kpiGross',t.grossProfit,t.grossProfit>=0?'pos':'neg');
+  sk('kpiExp',t.totalExp); sk('kpiNet',t.netProfit,t.netProfit>=0?'pos':'neg');
+  sk('kpiUpfront',t.upfront,t.upfront>0?'amb':'');
+  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' units';
+  document.getElementById('kpiMargin').textContent = (t.revenue>0?((t.grossProfit/t.revenue)*100).toFixed(1):'0.0')+'% margin';
+  document.getElementById('kpiAfter').textContent = fmt(t.afterEvent)+' after event';
+
+  // Products
+  const pb = document.getElementById('productsBody');
+  pb.innerHTML = t.pp.length ? t.pp.map(p=>`
+    <tr>
+      <td><input type="text" data-kind="p" data-id="${p.id}" data-f="name" value="${esc(p.name)}" placeholder="Product name"><span class="print-val">${esc(p.name)}</span></td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="price" value="${p.price}"><span class="print-val">${fmt(p.price)}</span></td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="case_cost" value="${p.case_cost}"><span class="print-val">${fmt(p.case_cost)}</span></td>
+      <td class="r mono calc">${fmt(p.unitCost)}</td>
+      <td class="r mono ${p.profitPerUnit>=0?'pos':'neg'}">${fmt(p.profitPerUnit)}</td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="upfront" value="${p.upfront}"><span class="print-val">${p.upfront}%</span></td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="units" value="${p.units}"><span class="print-val">${fmtN(p.units)}</span></td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="bpc" value="${p.bpc}"><span class="print-val">${p.bpc}</span></td>
+      <td class="r mono calc">${fmtN(p.casesNeeded)}</td>
+      <td class="r mono">${fmt(p.revenue)}</td>
+      <td class="r mono ${p.grossProfit>=0?'pos':'neg'}">${fmt(p.grossProfit)}</td>
+      <td><button class="btn btn-danger" data-kind="del-p" data-id="${p.id}">✕</button></td>
+    </tr>`).join('')
+    : `<tr><td colspan="12"><div class="empty">No products yet — click Add Product.</div></td></tr>`;
+
+  // Cases
+  const cg = document.getElementById('casesGrid');
+  const withUnits = t.pp.filter(p=>p.units>0);
+  cg.innerHTML = withUnits.length ? withUnits.map(p=>`
+    <div class="case-pill">
+      <div class="case-name" title="${esc(p.name)}">${esc(p.name||'Unnamed')}</div>
+      <div class="case-num">${fmtN(p.casesNeeded)}</div>
+      <div class="case-sub">${fmtN(p.units)} ÷ ${p.bpc} per case</div>
+    </div>`).join('')
+    : `<div class="empty" style="grid-column:1/-1">Set units sold to see cases needed.</div>`;
+
+  // Expenses
+  const cats = ['Fixed','Variable','Marketing','Staffing','Inventory Support'];
+  const eb = document.getElementById('expensesBody');
+  eb.innerHTML = t.ee.length ? t.ee.map(e=>`
+    <tr>
+      <td><input type="text" data-kind="e" data-id="${e.id}" data-f="name" value="${esc(e.name)}" placeholder="Security, DJ..."><span class="print-val">${esc(e.name)}</span></td>
+      <td><select data-kind="e" data-id="${e.id}" data-f="category">
+        ${cats.map(c=>`<option value="${c}" ${e.category===c?'selected':''}>${c}</option>`).join('')}
+      </select><span class="print-val">${esc(e.category)}</span></td>
+      <td><input type="number" class="sm" data-kind="e" data-id="${e.id}" data-f="qty" value="${e.qty}"><span class="print-val">${e.qty}</span></td>
+      <td><input type="number" class="sm" data-kind="e" data-id="${e.id}" data-f="unit_cost" value="${e.unit_cost}"><span class="print-val">${fmt(e.unit_cost)}</span></td>
+      <td><input type="number" class="sm" data-kind="e" data-id="${e.id}" data-f="upfront" value="${e.upfront}"><span class="print-val">${e.upfront}%</span></td>
+      <td class="r mono">${fmt(e.amount)}</td>
+      <td><button class="btn btn-danger" data-kind="del-e" data-id="${e.id}">✕</button></td>
+    </tr>`).join('')
+    : `<tr><td colspan="7"><div class="empty">No expenses yet — click Add Expense.</div></td></tr>`;
+}
+
+function updateCalcCells() {
+  const t = getTotals();
+  const sk = (id,val,cls) => { const el=document.getElementById(id); if(!el) return; el.textContent=fmt(val); el.className='kpi-value'+(cls?' '+cls:''); };
+  sk('kpiRevenue',t.revenue); sk('kpiCogs',t.cogs);
+  sk('kpiGross',t.grossProfit,t.grossProfit>=0?'pos':'neg');
+  sk('kpiExp',t.totalExp); sk('kpiNet',t.netProfit,t.netProfit>=0?'pos':'neg');
+  sk('kpiUpfront',t.upfront,t.upfront>0?'amb':'');
+  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' units';
+  document.getElementById('kpiMargin').textContent = (t.revenue>0?((t.grossProfit/t.revenue)*100).toFixed(1):'0.0')+'% margin';
+  document.getElementById('kpiAfter').textContent = fmt(t.afterEvent)+' after event';
+
+  t.pp.forEach(p => {
+    document.querySelectorAll(`#productsBody tr`).forEach(row => {
+      if (!row.querySelector(`[data-id="${p.id}"]`)) return;
+      const c = row.querySelectorAll('td');
+      if (c[3]) c[3].textContent = fmt(p.unitCost);
+      if (c[4]) { c[4].textContent=fmt(p.profitPerUnit); c[4].className='r mono '+(p.profitPerUnit>=0?'pos':'neg'); }
+      if (c[8]) c[8].textContent = fmtN(p.casesNeeded);
+      if (c[9]) c[9].textContent = fmt(p.revenue);
+      if (c[10]) { c[10].textContent=fmt(p.grossProfit); c[10].className='r mono '+(p.grossProfit>=0?'pos':'neg'); }
+    });
+  });
+  t.ee.forEach(e => {
+    document.querySelectorAll(`#expensesBody tr`).forEach(row => {
+      if (!row.querySelector(`[data-id="${e.id}"]`)) return;
+      const c = row.querySelectorAll('td');
+      if (c[5]) c[5].textContent = fmt(e.amount);
+    });
+  });
+}
+
+// ── Supabase CRUD ────────────────────────────────────────────────────────────
+async function saveProduct(p) {
+  setSyncState('saving');
+  const { error } = await sb.from('bar_products').upsert({
+    id: p.id, session_id: sessionId, name: p.name, units: p.units, bpc: p.bpc,
+    price: p.price, case_cost: p.case_cost, upfront: p.upfront,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'id,session_id' });
+  if (error) { console.error(error); setSyncState('error'); }
+  else setSyncState('live');
+}
+
+async function deleteProduct(id) {
+  setSyncState('saving');
+  await sb.from('bar_products').delete().eq('id',id).eq('session_id',sessionId);
+  setSyncState('live');
+}
+
+async function saveExpense(e) {
+  setSyncState('saving');
+  const { error } = await sb.from('bar_expenses').upsert({
+    id: e.id, session_id: sessionId, name: e.name, category: e.category,
+    qty: e.qty, unit_cost: e.unit_cost, upfront: e.upfront,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'id,session_id' });
+  if (error) { console.error(error); setSyncState('error'); }
+  else setSyncState('live');
+}
+
+async function deleteExpense(id) {
+  setSyncState('saving');
+  await sb.from('bar_expenses').delete().eq('id',id).eq('session_id',sessionId);
+  setSyncState('live');
+}
+
+function debounceSave(id, fn) {
+  clearTimeout(saveTimers[id]);
+  saveTimers[id] = setTimeout(fn, 600);
+}
+
+// ── Realtime subscription ────────────────────────────────────────────────────
+function subscribeRealtime() {
+  if (channel) sb.removeChannel(channel);
+
+  channel = sb.channel(`session:${sessionId}`)
+    .on('postgres_changes', { event:'*', schema:'public', table:'bar_products', filter:`session_id=eq.${sessionId}` },
+      payload => {
+        const { eventType, new: n, old: o } = payload;
+        if (eventType === 'DELETE') {
+          products = products.filter(p => p.id !== o.id);
+        } else {
+          const idx = products.findIndex(p => p.id === n.id);
+          if (idx >= 0) products[idx] = n; else products.push(n);
+        }
+        render();
+      })
+    .on('postgres_changes', { event:'*', schema:'public', table:'bar_expenses', filter:`session_id=eq.${sessionId}` },
+      payload => {
+        const { eventType, new: n, old: o } = payload;
+        if (eventType === 'DELETE') {
+          expenses = expenses.filter(e => e.id !== o.id);
+        } else {
+          const idx = expenses.findIndex(e => e.id === n.id);
+          if (idx >= 0) expenses[idx] = n; else expenses.push(n);
+        }
+        render();
+      })
+    .on('presence', { event:'sync' }, () => {
+      const state = channel.presenceState();
+      const presenceBar = document.getElementById('presenceBar');
+      const users = Object.values(state).flat();
+      presenceBar.innerHTML = users.map(u =>
+        `<div class="avatar" style="background:${u.color}" title="${u.name}">${u.name[0]}</div>`
+      ).join('');
+    })
+    .subscribe(async status => {
+      if (status === 'SUBSCRIBED') {
+        setSyncState('live');
+        await channel.track({ name: myName, color: myColor });
+      }
+    });
+}
+
+// ── Load session data ────────────────────────────────────────────────────────
+async function loadSession(id) {
+  setSyncState('connecting');
+  sessionId = id;
+
+  const [{ data: pd }, { data: ed }] = await Promise.all([
+    sb.from('bar_products').select('*').eq('session_id', id).order('sort_order'),
+    sb.from('bar_expenses').select('*').eq('session_id', id).order('sort_order'),
+  ]);
+
+  products = pd || [];
+  expenses = ed || [];
+
+  // Put session ID in URL so sharing the link joins the same session
+  const url = new URL(window.location.href);
+  url.searchParams.set('s', id);
+  window.history.replaceState({}, '', url.toString());
+
+  document.getElementById('sessionBadge').textContent = id;
+  document.getElementById('loadingScreen').classList.add('hidden');
+
+  render();
+  subscribeRealtime();
+}
+
+// ── Copy share link ──────────────────────────────────────────────────────────
+function copyShareLink() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('s', sessionId);
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    const badge = document.getElementById('sessionBadge');
+    badge.textContent = 'Link copied!';
+    setTimeout(() => badge.textContent = sessionId, 2000);
+  });
+}
+
+// ── Auto-init on page load ────────────────────────────────────────────────────
+async function init() {
+  // Check if a session code is in the URL ?s=xxxxxxxx
+  const params = new URLSearchParams(window.location.search);
+  const codeFromUrl = params.get('s');
+
+  if (codeFromUrl) {
+    // Join existing session from URL
+    document.getElementById('loadingText').textContent = 'Joining session...';
+    const { data, error } = await sb.from('bar_sessions').select('id').eq('id', codeFromUrl).single();
+    if (data && !error) {
+      await loadSession(codeFromUrl);
+      return;
+    }
+    // Session not found — fall through to create new
+  }
+
+  // Create a new session automatically
+  document.getElementById('loadingText').textContent = 'Creating your session...';
+  const { data: session, error } = await sb.from('bar_sessions').insert({ name: 'Bar Event Plan' }).select().single();
+  if (error || !session) {
+    document.getElementById('loadingText').textContent = 'Connection failed. Please refresh.';
+    return;
+  }
+
+  // Seed default data
+  const pRows = DEFAULT_PRODUCTS.map((p,i) => ({ ...p, id: makeId(), session_id: session.id, sort_order: i }));
+  const eRows = DEFAULT_EXPENSES.map((e,i) => ({ ...e, id: makeId(), session_id: session.id, sort_order: i }));
+  await Promise.all([
+    sb.from('bar_products').insert(pRows),
+    sb.from('bar_expenses').insert(eRows),
+  ]);
+
+  await loadSession(session.id);
+}
+
+// ── Button handlers ──────────────────────────────────────────────────────────
+document.getElementById('shareBtn').addEventListener('click', () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('s', sessionId);
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    const btn = document.getElementById('shareBtn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = '🔗 Share Link', 2000);
+  });
+});
+
+
+document.getElementById('newSessionBtn').addEventListener('click', async () => {
+  if (!confirm('Start a fresh session? This will create a new blank plan.')) return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('s');
+  window.location.href = url.toString();
+});
+
+const DEFAULT_PRODUCTS = [
+  { name:"Wray and Nephew 200ml",  units:48,  bpc:48, price:1500, case_cost:48000,  upfront:0 },
+  { name:"JW Black 200ml",         units:22,  bpc:24, price:3000, case_cost:48000,  upfront:0 },
+  { name:"Appleton Reserve 200ml", units:48,  bpc:48, price:3500, case_cost:35273,  upfront:0 },
+  { name:"Campari 200ml",          units:24,  bpc:24, price:1000, case_cost:20515,  upfront:0 },
+  { name:"Water",                  units:353, bpc:24, price:100,  case_cost:1390,   upfront:0 },
+  { name:"Cranberry",              units:100, bpc:24, price:500,  case_cost:6803,   upfront:0 },
+  { name:"Pepsi",                  units:381, bpc:24, price:200,  case_cost:3412,   upfront:0 },
+  { name:"Ting",                   units:332, bpc:24, price:200,  case_cost:3412,   upfront:0 },
+  { name:"Flavor Beer",            units:600, bpc:24, price:600,  case_cost:5370,   upfront:0 },
+  { name:"Heineken",               units:120, bpc:24, price:700,  case_cost:5370,   upfront:0 },
+  { name:"Lengend Beer",           units:500, bpc:24, price:500,  case_cost:2400,   upfront:0 },
+  { name:"Mongozo Beer",           units:80,  bpc:24, price:500,  case_cost:0,      upfront:0 },
+];
+const DEFAULT_EXPENSES = [
+  { name:"Staff",                     category:"Staffing", qty:5,   unit_cost:10000,  upfront:0 },
+  { name:"Meals",                     category:"Fixed",    qty:10,  unit_cost:2000,   upfront:0 },
+  { name:"Security",                  category:"Fixed",    qty:1,   unit_cost:15000,  upfront:0 },
+  { name:"Drums",                     category:"Fixed",    qty:5,   unit_cost:1000,   upfront:0 },
+  { name:"POS (Budgets, Other)",      category:"Fixed",    qty:1,   unit_cost:20000,  upfront:0 },
+  { name:"Ice and coolers",           category:"Fixed",    qty:300, unit_cost:400,    upfront:0 },
+  { name:"Tent and tables",           category:"Fixed",    qty:1,   unit_cost:155000, upfront:0 },
+  { name:"Credit card fees",          category:"Variable", qty:1,   unit_cost:50000,  upfront:0 },
+  { name:"Transportation",            category:"Fixed",    qty:1,   unit_cost:20000,  upfront:0 },
+];
+
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const t = getTotals();
+  let csv = 'Product,Price,Cost/Case,Cost/Unit,Profit/Unit,Units,BPC,Cases,Revenue,Gross Profit\n';
+  t.pp.forEach(p => csv += [p.name,p.price,p.case_cost,p.unitCost.toFixed(2),p.profitPerUnit.toFixed(2),p.units,p.bpc,p.casesNeeded,p.revenue.toFixed(2),p.grossProfit.toFixed(2)].join(',')+'\n');
+  csv += '\nExpense,Category,Qty,Unit Cost,Upfront %,Total\n';
+  t.ee.forEach(e => csv += [e.name,e.category,e.qty,e.unit_cost,e.upfront,e.amount.toFixed(2)].join(',')+'\n');
+  csv += `\nRevenue,${t.revenue.toFixed(2)}\nCOGS,${t.cogs.toFixed(2)}\nGross Profit,${t.grossProfit.toFixed(2)}\nExpenses,${t.totalExp.toFixed(2)}\nNet Profit,${t.netProfit.toFixed(2)}\nUpfront,${t.upfront.toFixed(2)}\nAfter Event,${t.afterEvent.toFixed(2)}\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'bar_event_plan.csv'; a.click();
+});
+
+// ── Start ──────────────────────────────────────────────────────────────────
+init();
+document.addEventListener('input', e => {
+  const el = e.target;
+  const kind = el.dataset.kind, id = el.dataset.id, f = el.dataset.f;
+  if (!kind || !id || !f) return;
+
+  const span = el.nextElementSibling;
+  if (span && span.classList.contains('print-val')) {
+    span.textContent = el.value + (f === 'upfront' ? '%' : '');
+  }
+
+  if (kind === 'p') {
+    const row = products.find(p => p.id === id); if (!row) return;
+    row[f] = f === 'name' ? el.value : toNum(el.value);
+    updateCalcCells();
+    debounceSave(id, () => saveProduct(row));
+  }
+  if (kind === 'e') {
+    const row = expenses.find(e => e.id === id); if (!row) return;
+    row[f] = (f === 'name' || f === 'category') ? el.value : toNum(el.value);
+    updateCalcCells();
+    debounceSave(id, () => saveExpense(row));
+  }
+});
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-kind]'); if (!btn) return;
+  const kind = btn.dataset.kind, id = btn.dataset.id;
+
+  if (kind === 'del-p') {
+    products = products.filter(p => p.id !== id);
+    render(); deleteProduct(id);
+  }
+  if (kind === 'del-e') {
+    expenses = expenses.filter(ex => ex.id !== id);
+    render(); deleteExpense(id);
+  }
+});
+
+document.getElementById('addProductBtn').addEventListener('click', async () => {
+  const p = { id: makeId(), session_id: sessionId, name:'', units:0, bpc:24, price:0, case_cost:0, upfront:0, sort_order: products.length };
+  products.push(p); render();
+  await saveProduct(p);
+});
+
+document.getElementById('addExpenseBtn').addEventListener('click', async () => {
+  const e = { id: makeId(), session_id: sessionId, name:'', category:'Fixed', qty:1, unit_cost:0, upfront:100, sort_order: expenses.length };
+  expenses.push(e); render();
+  await saveExpense(e);
+});
+
+document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const t = getTotals();
+  let csv = 'Product,Price,Cost/Case,Cost/Unit,Profit/Unit,Units,BPC,Cases,Revenue,Gross Profit\n';
+  t.pp.forEach(p => csv += [p.name,p.price,p.case_cost,p.unitCost.toFixed(2),p.profitPerUnit.toFixed(2),p.units,p.bpc,p.casesNeeded,p.revenue.toFixed(2),p.grossProfit.toFixed(2)].join(',')+'\n');
+  csv += '\nExpense,Category,Qty,Unit Cost,Upfront %,Total\n';
+  t.ee.forEach(e => csv += [e.name,e.category,e.qty,e.unit_cost,e.upfront,e.amount.toFixed(2)].join(',')+'\n');
+  csv += `\nRevenue,${t.revenue.toFixed(2)}\nCOGS,${t.cogs.toFixed(2)}\nGross Profit,${t.grossProfit.toFixed(2)}\nExpenses,${t.totalExp.toFixed(2)}\nNet Profit,${t.netProfit.toFixed(2)}\nUpfront,${t.upfront.toFixed(2)}\nAfter Event,${t.afterEvent.toFixed(2)}\n`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'bar_event_plan.csv'; a.click();
+});
+
+// ── Start ──────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
