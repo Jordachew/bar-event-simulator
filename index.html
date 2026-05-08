@@ -494,9 +494,9 @@ async function loadSession(id) {
   } catch(e) {}
 
   document.getElementById('sessionBadge').textContent = id;
-  // Force hide the loading screen
-  const ls = document.getElementById('loadingScreen');
-  ls.style.display = 'none';
+  // Hide loading, show app
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'block';
 
   render();
   subscribeRealtime();
