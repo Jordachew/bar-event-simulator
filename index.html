@@ -176,10 +176,10 @@ td input[type="text"] { min-width:120px; }
     </div>
   </div>
 
-  <!-- Share banner — shown on first load -->
-  <div id="shareBanner" style="display:none; background:rgba(232,153,58,0.12); border:1px solid rgba(232,153,58,0.3); border-radius:12px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+  <!-- Share banner — always visible so users know how to collaborate -->
+  <div id="shareBanner" style="background:rgba(232,153,58,0.12); border:1px solid rgba(232,153,58,0.3); border-radius:12px; padding:12px 16px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
     <div>
-      <span style="font-size:13px; font-weight:600; color:var(--amber);">👥 To collaborate in real time — share this link with your team:</span>
+      <span style="font-size:13px; font-weight:600; color:var(--amber);">👥 Share this link to collaborate in real time:</span>
       <div id="shareUrl" style="font-family:var(--mono); font-size:12px; color:var(--muted); margin-top:4px; word-break:break-all;"></div>
     </div>
     <div style="display:flex; gap:8px; flex-shrink:0;">
@@ -546,18 +546,21 @@ async function loadSession(id) {
   } catch(e) {}
 
   document.getElementById('sessionBadge').textContent = id;
-  // Remember this session in localStorage so returning users rejoin it automatically
   localStorage.setItem('bar_session_id', id);
+
+  // Build the share URL with session code
+  const shareUrl = `${window.location.origin}${window.location.pathname}?s=${id}`;
+
+  // Update browser URL
+  try { window.history.replaceState({}, '', shareUrl); } catch(e) {}
+
+  // Show share URL in banner
+  const urlEl = document.getElementById('shareUrl');
+  if (urlEl) urlEl.textContent = shareUrl;
+
   // Hide loading, show app
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
-
-  // Show share banner so users know to share the link for collaboration
-  const shareUrl = window.location.href;
-  const banner = document.getElementById('shareBanner');
-  const urlEl = document.getElementById('shareUrl');
-  if (urlEl) urlEl.textContent = shareUrl;
-  if (banner) banner.style.display = 'flex';
 
   render();
   subscribeRealtime();
