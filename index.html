@@ -23,7 +23,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--ink); min-h
   position: fixed; inset: 0; background: var(--bg); z-index: 100;
   display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
 }
-#loadingScreen.hidden { display: none; }
+#loadingScreen.hidden { display: none !important; }
 .loading-logo { font-size: 48px; }
 .loading-text { color: var(--muted); font-size: 14px; }
 
@@ -475,21 +475,28 @@ async function loadSession(id) {
   setSyncState('connecting');
   sessionId = id;
 
-  const [{ data: pd }, { data: ed }] = await Promise.all([
+  const [{ data: pd, error: pe }, { data: ed, error: ee }] = await Promise.all([
     sb.from('bar_products').select('*').eq('session_id', id).order('sort_order'),
     sb.from('bar_expenses').select('*').eq('session_id', id).order('sort_order'),
   ]);
 
+  if (pe) console.error('Products load error:', pe);
+  if (ee) console.error('Expenses load error:', ee);
+
   products = pd || [];
   expenses = ed || [];
 
-  // Put session ID in URL so sharing the link joins the same session
-  const url = new URL(window.location.href);
-  url.searchParams.set('s', id);
-  window.history.replaceState({}, '', url.toString());
+  // Update URL with session code (works on https, silently fails on file://)
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('s', id);
+    window.history.replaceState({}, '', url.toString());
+  } catch(e) {}
 
   document.getElementById('sessionBadge').textContent = id;
-  document.getElementById('loadingScreen').classList.add('hidden');
+  // Force hide the loading screen
+  const ls = document.getElementById('loadingScreen');
+  ls.style.display = 'none';
 
   render();
   subscribeRealtime();
@@ -508,38 +515,38 @@ function copyShareLink() {
 
 // ── Auto-init on page load ────────────────────────────────────────────────────
 async function init() {
-  // Check if a session code is in the URL ?s=xxxxxxxx
-  const params = new URLSearchParams(window.location.search);
-  const codeFromUrl = params.get('s');
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const codeFromUrl = params.get('s');
 
-  if (codeFromUrl) {
-    // Join existing session from URL
-    document.getElementById('loadingText').textContent = 'Joining session...';
-    const { data, error } = await sb.from('bar_sessions').select('id').eq('id', codeFromUrl).single();
-    if (data && !error) {
-      await loadSession(codeFromUrl);
-      return;
+    if (codeFromUrl) {
+      document.getElementById('loadingText').textContent = 'Joining session...';
+      const { data, error } = await sb.from('bar_sessions').select('id').eq('id', codeFromUrl).single();
+      if (data && !error) {
+        await loadSession(codeFromUrl);
+        return;
+      }
     }
-    // Session not found — fall through to create new
+
+    document.getElementById('loadingText').textContent = 'Creating your session...';
+    const { data: session, error } = await sb.from('bar_sessions').insert({ name: 'Bar Event Plan' }).select().single();
+    if (error || !session) throw new Error('Failed to create session: ' + (error?.message || 'unknown'));
+
+    const pRows = DEFAULT_PRODUCTS.map((p,i) => ({ ...p, id: makeId(), session_id: session.id, sort_order: i }));
+    const eRows = DEFAULT_EXPENSES.map((e,i) => ({ ...e, id: makeId(), session_id: session.id, sort_order: i }));
+    const [{ error: pe }, { error: ee }] = await Promise.all([
+      sb.from('bar_products').insert(pRows),
+      sb.from('bar_expenses').insert(eRows),
+    ]);
+    if (pe) throw new Error('Failed to insert products: ' + pe.message);
+    if (ee) throw new Error('Failed to insert expenses: ' + ee.message);
+
+    await loadSession(session.id);
+
+  } catch(err) {
+    console.error('Init failed:', err);
+    document.getElementById('loadingText').textContent = '⚠️ ' + err.message + ' — please refresh.';
   }
-
-  // Create a new session automatically
-  document.getElementById('loadingText').textContent = 'Creating your session...';
-  const { data: session, error } = await sb.from('bar_sessions').insert({ name: 'Bar Event Plan' }).select().single();
-  if (error || !session) {
-    document.getElementById('loadingText').textContent = 'Connection failed. Please refresh.';
-    return;
-  }
-
-  // Seed default data
-  const pRows = DEFAULT_PRODUCTS.map((p,i) => ({ ...p, id: makeId(), session_id: session.id, sort_order: i }));
-  const eRows = DEFAULT_EXPENSES.map((e,i) => ({ ...e, id: makeId(), session_id: session.id, sort_order: i }));
-  await Promise.all([
-    sb.from('bar_products').insert(pRows),
-    sb.from('bar_expenses').insert(eRows),
-  ]);
-
-  await loadSession(session.id);
 }
 
 // ── Button handlers ──────────────────────────────────────────────────────────
