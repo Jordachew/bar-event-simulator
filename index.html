@@ -194,7 +194,8 @@ td input[type="text"] { min-width:120px; }
         <thead><tr>
           <th>Product</th><th class="r">Selling Price</th><th class="r">Cost / Case</th>
           <th class="r">Cost / Unit</th><th class="r">Profit / Unit</th><th class="r">Upfront %</th>
-          <th class="r">Units Sold</th><th class="r">Btls / Case</th><th class="r">Cases Needed</th>
+          <th class="r">Est. Units Sold</th><th class="r">Buffer %</th><th class="r">Units to Order</th>
+          <th class="r">Btls / Case</th><th class="r">Cases to Order</th>
           <th class="r">Revenue</th><th class="r">Gross Profit</th><th></th>
         </tr></thead>
         <tbody id="productsBody"></tbody>
@@ -204,7 +205,7 @@ td input[type="text"] { min-width:120px; }
 
   <!-- Cases -->
   <div class="card">
-    <div class="card-head"><div><div class="card-title">Cases to Order</div><div class="card-sub">Based on units sold and bottles per case</div></div></div>
+    <div class="card-head"><div><div class="card-title">Cases to Order</div><div class="card-sub">Includes buffer stock — actual order quantity</div></div></div>
     <div class="cases-grid" id="casesGrid"></div>
   </div>
 
@@ -268,13 +269,18 @@ function copySessionCode() {
 
 // ── Calculations ────────────────────────────────────────────────────────────
 function calcProduct(p) {
-  const units = toNum(p.units), bpc = toNum(p.bpc)||24, caseCost = toNum(p.case_cost);
-  const unitCost = bpc > 0 ? caseCost/bpc : 0;
-  const revenue = units * toNum(p.price);
-  const cogs = units * unitCost;
-  return { ...p, units, bpc, unitCost, revenue, cogs,
+  const units    = toNum(p.units);
+  const buffer   = toNum(p.buffer);
+  const bpc      = toNum(p.bpc) || 24;
+  const caseCost = toNum(p.case_cost);
+  const unitCost = bpc > 0 ? caseCost / bpc : 0;
+  const unitsToOrder = Math.ceil(units * (1 + buffer / 100));
+  const casesToOrder = Math.ceil(unitsToOrder / bpc);
+  const revenue      = units * toNum(p.price);           // revenue on estimated sold units
+  const cogs         = unitsToOrder * unitCost;           // cost on actual order quantity
+  return { ...p, units, buffer, bpc, unitCost, unitsToOrder, casesToOrder, revenue, cogs,
     grossProfit: revenue - cogs, profitPerUnit: toNum(p.price) - unitCost,
-    casesNeeded: Math.ceil(units/bpc), upfrontCash: cogs*(toNum(p.upfront)/100) };
+    upfrontCash: cogs * (toNum(p.upfront) / 100) };
 }
 function calcExpense(e) {
   const amount = toNum(e.qty) * toNum(e.unit_cost);
@@ -288,7 +294,8 @@ function getTotals() {
   const afterEvent = pp.reduce((s,p)=>s+(p.cogs-p.upfrontCash),0) + ee.reduce((s,e)=>s+(e.amount-e.upfrontCash),0);
   return { pp, ee, revenue, cogs, grossProfit:revenue-cogs, totalExp,
     netProfit:revenue-cogs-totalExp, upfront, afterEvent,
-    totalUnits: pp.reduce((s,p)=>s+p.units,0) };
+    totalUnits: pp.reduce((s,p)=>s+p.units,0),
+    totalUnitsToOrder: pp.reduce((s,p)=>s+p.unitsToOrder,0) };
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -301,7 +308,7 @@ function render() {
   sk('kpiGross',t.grossProfit,t.grossProfit>=0?'pos':'neg');
   sk('kpiExp',t.totalExp); sk('kpiNet',t.netProfit,t.netProfit>=0?'pos':'neg');
   sk('kpiUpfront',t.upfront,t.upfront>0?'amb':'');
-  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' units';
+  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' sold'+(t.totalUnitsToOrder>t.totalUnits?' / '+fmtN(t.totalUnitsToOrder)+' to order':'');
   document.getElementById('kpiMargin').textContent = (t.revenue>0?((t.grossProfit/t.revenue)*100).toFixed(1):'0.0')+'% margin';
   document.getElementById('kpiAfter').textContent = fmt(t.afterEvent)+' after event';
 
@@ -316,22 +323,24 @@ function render() {
       <td class="r mono ${p.profitPerUnit>=0?'pos':'neg'}">${fmt(p.profitPerUnit)}</td>
       <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="upfront" value="${p.upfront}"><span class="print-val">${p.upfront}%</span></td>
       <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="units" value="${p.units}"><span class="print-val">${fmtN(p.units)}</span></td>
+      <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="buffer" value="${p.buffer||0}" placeholder="0"><span class="print-val">${p.buffer||0}%</span></td>
+      <td class="r mono ${p.buffer>0?'amb':'calc'}">${fmtN(p.unitsToOrder)}${p.buffer>0?' <span style="font-size:10px;opacity:0.6">(+'+fmtN(p.unitsToOrder-p.units)+')</span>':''}</td>
       <td><input type="number" class="sm" data-kind="p" data-id="${p.id}" data-f="bpc" value="${p.bpc}"><span class="print-val">${p.bpc}</span></td>
-      <td class="r mono calc">${fmtN(p.casesNeeded)}</td>
+      <td class="r mono ${p.buffer>0?'amb':'calc'}">${fmtN(p.casesToOrder)}</td>
       <td class="r mono">${fmt(p.revenue)}</td>
       <td class="r mono ${p.grossProfit>=0?'pos':'neg'}">${fmt(p.grossProfit)}</td>
       <td><button class="btn btn-danger" data-kind="del-p" data-id="${p.id}">✕</button></td>
     </tr>`).join('')
-    : `<tr><td colspan="12"><div class="empty">No products yet — click Add Product.</div></td></tr>`;
+    : `<tr><td colspan="14"><div class="empty">No products yet — click Add Product.</div></td></tr>`;
 
-  // Cases
+  // Cases — show buffer order quantity
   const cg = document.getElementById('casesGrid');
   const withUnits = t.pp.filter(p=>p.units>0);
   cg.innerHTML = withUnits.length ? withUnits.map(p=>`
     <div class="case-pill">
       <div class="case-name" title="${esc(p.name)}">${esc(p.name||'Unnamed')}</div>
-      <div class="case-num">${fmtN(p.casesNeeded)}</div>
-      <div class="case-sub">${fmtN(p.units)} ÷ ${p.bpc} per case</div>
+      <div class="case-num" style="${p.buffer>0?'color:var(--amber)':''}">${fmtN(p.casesToOrder)}</div>
+      <div class="case-sub">${fmtN(p.unitsToOrder)} units${p.buffer>0?' (incl. '+p.buffer+'% buffer)':''}</div>
     </div>`).join('')
     : `<div class="empty" style="grid-column:1/-1">Set units sold to see cases needed.</div>`;
 
@@ -360,7 +369,7 @@ function updateCalcCells() {
   sk('kpiGross',t.grossProfit,t.grossProfit>=0?'pos':'neg');
   sk('kpiExp',t.totalExp); sk('kpiNet',t.netProfit,t.netProfit>=0?'pos':'neg');
   sk('kpiUpfront',t.upfront,t.upfront>0?'amb':'');
-  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' units';
+  document.getElementById('kpiUnits').textContent = fmtN(t.totalUnits)+' sold'+(t.totalUnitsToOrder>t.totalUnits?' / '+fmtN(t.totalUnitsToOrder)+' to order':'');
   document.getElementById('kpiMargin').textContent = (t.revenue>0?((t.grossProfit/t.revenue)*100).toFixed(1):'0.0')+'% margin';
   document.getElementById('kpiAfter').textContent = fmt(t.afterEvent)+' after event';
 
@@ -368,11 +377,13 @@ function updateCalcCells() {
     document.querySelectorAll(`#productsBody tr`).forEach(row => {
       if (!row.querySelector(`[data-id="${p.id}"]`)) return;
       const c = row.querySelectorAll('td');
+      // col 3=unitCost, 4=profitPerUnit, 8=unitsToOrder, 10=casesToOrder, 11=revenue, 12=grossProfit
       if (c[3]) c[3].textContent = fmt(p.unitCost);
       if (c[4]) { c[4].textContent=fmt(p.profitPerUnit); c[4].className='r mono '+(p.profitPerUnit>=0?'pos':'neg'); }
-      if (c[8]) c[8].textContent = fmtN(p.casesNeeded);
-      if (c[9]) c[9].textContent = fmt(p.revenue);
-      if (c[10]) { c[10].textContent=fmt(p.grossProfit); c[10].className='r mono '+(p.grossProfit>=0?'pos':'neg'); }
+      if (c[8]) c[8].innerHTML = fmtN(p.unitsToOrder)+(p.buffer>0?' <span style="font-size:10px;opacity:0.6">(+'+fmtN(p.unitsToOrder-p.units)+')</span>':'');
+      if (c[10]) c[10].textContent = fmtN(p.casesToOrder);
+      if (c[11]) c[11].textContent = fmt(p.revenue);
+      if (c[12]) { c[12].textContent=fmt(p.grossProfit); c[12].className='r mono '+(p.grossProfit>=0?'pos':'neg'); }
     });
   });
   t.ee.forEach(e => {
@@ -389,7 +400,7 @@ async function saveProduct(p) {
   setSyncState('saving');
   const { error } = await sb.from('bar_products').upsert({
     id: p.id, session_id: sessionId, name: p.name, units: p.units, bpc: p.bpc,
-    price: p.price, case_cost: p.case_cost, upfront: p.upfront,
+    price: p.price, case_cost: p.case_cost, upfront: p.upfront, buffer: p.buffer || 0,
     updated_at: new Date().toISOString()
   }, { onConflict: 'id,session_id' });
   if (error) { console.error(error); setSyncState('error'); }
