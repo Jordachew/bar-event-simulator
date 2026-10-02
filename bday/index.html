@@ -137,6 +137,7 @@ section.blk>h2{font-size:34px;margin-bottom:6px;color:var(--brand)}
 @keyframes wob{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg) scale(1.08)}}
 .gift b{display:block;font-size:17px;font-weight:800}
 .gift small{color:var(--muted);font-size:14px;font-weight:700}
+.ch.locked{opacity:.85;border-style:dashed}
 .ch.reveal{animation:pop .6s cubic-bezier(.3,1.5,.5,1)}
 @keyframes pop{0%{transform:scale(.9);opacity:.4}60%{transform:scale(1.04)}100%{transform:none;opacity:1}}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
@@ -500,7 +501,7 @@ function journeyDyn(){
         <div class="map-foot"><span>Kingston</span><span>${done} of ${total} moments</span><span>Negril</span></div></div>
     </section>
     <section class="blk"><h2>${isHer() ? "Your challenges" : esc(herName()) + "'s challenges"}</h2>
-      <p class="lead">${isHer() ? "Tap a challenge when you're ready. Take the photo, add a line, and it appears for everyone." : "As she captures each one, it shows up here. Send a heart."}</p>
+      <p class="lead">${isHer() ? "Tap a challenge when you're ready. Take the photo, add a line, and it appears for everyone." : "Her challenges are a surprise. Each moment appears here as she captures it. Send a heart."}</p>
       ${list || '<div class="card empty">No challenges yet.</div>'}
     </section>`;
   placeMap();
@@ -510,6 +511,9 @@ function chHTML(c){
   const p = capture(c.id);
   if (!p && isHer() && !opened().has(c.id)){
     return `<article class="card ch wrapped" id="ch-${c.id}"><button class="gift" data-unwrap="${c.id}" aria-label="Unwrap this challenge"><span class="gift-em" aria-hidden="true">🎁</span><span><b>Surprise challenge</b><small>Tap to unwrap</small></span></button></article>`;
+  }
+  if (!p && !canCapture()){
+    return `<article class="card ch locked" id="ch-${c.id}"><div class="em" aria-hidden="true">🎁</div><div><h4>Mystery moment</h4><p>${esc(herName())} will unlock this one on the trip. Check back for the photo.</p></div></article>`;
   }
   const liked = p && S.likes.has(p.id);
   return `<article class="card ch ${p ? "done" : ""} ${S.justOpened === c.id ? "reveal" : ""}" id="ch-${c.id}">
