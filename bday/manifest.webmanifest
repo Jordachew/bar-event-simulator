@@ -1,0 +1,16 @@
+{
+  "name": "Nichole turns 33",
+  "short_name": "Nichole 33",
+  "description": "A birthday road trip from Kingston to Negril, with photo challenges and a wall of wishes.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f3b47",
+  "theme_color": "#0f3b47",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
