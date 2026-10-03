@@ -178,6 +178,12 @@ textarea.field{min-height:96px;resize:vertical}
 .post-img{margin-top:10px;border-radius:18px;overflow:hidden;border:3px solid #fff;box-shadow:0 6px 16px rgba(201,40,95,.15)}
 .post-img img{width:100%;max-height:480px;object-fit:cover;cursor:zoom-in}
 .tag{display:inline-block;font-size:13px;font-weight:800;background:var(--brand-soft);color:var(--brand);border-radius:99px;padding:2px 11px;margin-bottom:6px}
+.replyto{margin-top:12px;padding:12px 14px;border-radius:18px;background:var(--brand-soft);border:2px solid var(--line);font-size:15px}
+.replyto b{display:block;color:var(--brand);font:700 22px/1 var(--script);margin-bottom:4px}
+.replyto.forme{border-color:var(--hot);animation:pop .6s cubic-bezier(.3,1.5,.5,1)}
+.wishpop{display:grid;gap:10px}
+.wishpop .quote{background:var(--brand-soft);border-radius:18px;padding:12px 14px;font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}
+.wishpop img{width:100%;max-height:240px;object-fit:cover;border-radius:16px}
 .empty{text-align:center;color:var(--muted);padding:28px 16px;font-weight:700}
 .link-btn{color:var(--muted);font-size:13px;text-decoration:underline;padding:6px;font-weight:600}
 
@@ -586,14 +592,16 @@ function wallShell(){
   </div>`;
 }
 function feedDyn(){
-  const items = S.posts.filter(p => p.kind !== "memory");
+  const items = S.posts.filter(p => p.kind !== "memory" && !p.reply_to);
   const wishes = items.filter(p => !p.is_her).length;
   const cnt = $("#wallCount"); if (cnt) cnt.textContent = wishes ? `${wishes} wish${wishes === 1 ? "" : "es"} and photos so far.` : "Be the first to leave a wish.";
   const f = $("#feed"); if (!f) return;
   f.innerHTML = items.length ? items.map(postHTML).join("") : `<div class="card empty">Nothing here yet. Write the first wish above.</div>`;
   paintPrev();
 }
+const repliesOf = id => S.posts.filter(r => r.reply_to === id).sort((a, b) => a.created_at < b.created_at ? -1 : 1);
 function postHTML(p){
+  const kids = repliesOf(p.id), mine = S.mineParents && S.mineParents.has(p.id);
   const liked = S.likes.has(p.id), ch = p.challenge_id && S.challenges.find(c => c.id === p.challenge_id);
   const name = p.is_her ? herName() : (p.author || "Someone");
   return `<article class="card post ${p.is_her ? "her" : ""}">
@@ -603,7 +611,9 @@ function postHTML(p){
     ${p.body ? `<div class="post-body">${esc(p.body)}</div>` : ""}
     ${p.photo_path ? `<div class="post-img"><img src="${PHOTO(esc(p.photo_path))}" alt="Photo from ${esc(name)}" loading="lazy" data-zoom="${esc(p.photo_path)}"></div>` : ""}
     <div class="row"><button class="like" data-like="${p.id}" aria-pressed="${liked}" aria-label="Like">${HEART}<span>${p.likes}</span></button>
+      ${isHer() && !p.is_her && !kids.length ? `<button class="btn ghost small" data-reply="${p.id}">💬 Reply</button>` : ""}
       ${canModerate() ? `<button class="link-btn" data-hide="${p.id}">Remove</button>` : ""}</div>
+    ${kids.map(k => `<div class="replyto ${mine ? "forme" : ""}"><b>${mine ? "💗 " : ""}${esc(herName())} replied${mine ? " to you" : ""}</b><div class="post-body">${esc(k.body)}</div></div>`).join("")}
   </article>`;
 }
 function paintPrev(){
@@ -684,7 +694,7 @@ function rowVals(el){ const o = {}; el.querySelectorAll("[data-f]").forEach(i =>
 
 /* ───────── actions ───────── */
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-tab],[data-act],[data-like],[data-capture],[data-hide],[data-zoom],[data-unwrap],[data-pin],[data-chip]"); if (!t) return;
+  const t = e.target.closest("[data-tab],[data-act],[data-like],[data-capture],[data-hide],[data-zoom],[data-unwrap],[data-pin],[data-chip],[data-reply]"); if (!t) return;
   if (t.dataset.tab) return go(t.dataset.tab);
   if (t.dataset.zoom){ $("#lbimg").src = PHOTO(t.dataset.zoom); $("#lb").classList.add("on"); return; }
   if (t.dataset.like) return like(t.dataset.like, t);
@@ -694,6 +704,7 @@ document.addEventListener("click", async e => {
     const el = $("#ch-" + t.dataset.unwrap); if (el) el.scrollIntoView({behavior:"smooth", block:"center"});
     setTimeout(() => { S.justOpened = null; }, 1200); return;
   }
+  if (t.dataset.reply){ const w = S.posts.find(x => x.id === t.dataset.reply); if (w) openReply(w); return; }
   if (t.dataset.pin){ const el = $("#stop-" + t.dataset.pin); if (el) el.scrollIntoView({behavior:"smooth", block:"start"}); return; }
   if (t.dataset.chip){ const ta = $("#wBody"); if (ta){ ta.value = (ta.value ? ta.value.replace(/\s+$/, "") + " " : "") + t.dataset.chip; S.draft.body = ta.value; ta.focus(); } return; }
   if (t.dataset.capture){ S.captureFor = t.dataset.capture; $("#fileChallenge").value = ""; $("#fileChallenge").click(); return; }
@@ -704,6 +715,8 @@ document.addEventListener("click", async e => {
   const a = t.dataset.act, id = t.dataset.id;
   if (a === "push") return enablePush();
   if (a === "tap33") return tap33(t);
+  if (a === "replySend") return sendReply(t.dataset.id, t);
+  if (a === "replyLater"){ markWSeen(t.dataset.id); closeSheet(); setTimeout(checkPopups, 900); return; }
   if (a === "wiggle"){ t.classList.remove("wiggle"); void t.offsetWidth; t.classList.add("wiggle"); floatHearts(t.getBoundingClientRect().left + 40, t.getBoundingClientRect().top + 60, 4); return; }
   if (a === "wallPhoto"){ $("#fileWall").value = ""; $("#fileWall").click(); }
   if (a === "wallPhotoClear"){ if (S.draft.url) URL.revokeObjectURL(S.draft.url); S.draft.file = null; S.draft.url = null; paintPrev(); }
@@ -834,18 +847,65 @@ async function shareApp(){
 
 /* ───────── pop-ups from the schedule ───────── */
 function seenSet(){ try{ return new Set(JSON.parse(store.get("b_seen") || "[]")); }catch(_){ return new Set(); } }
+const wseen = () => { try{ return new Set(JSON.parse(store.get("b_wseen") || "[]")); }catch(_){ return new Set(); } };
+function markWSeen(id){ const x = wseen(); x.add(id); store.set("b_wseen", JSON.stringify([...x].slice(-200))); }
+function openReply(w){
+  const name = w.author || "Someone";
+  sheet(`<div class="grab"></div><div class="wishpop"><div class="pop-emoji" aria-hidden="true">${w.photo_path && !w.body ? "📸" : "💌"}</div>
+    <h2>${esc(name)} sent you love</h2>
+    ${w.body ? `<div class="quote">${esc(w.body)}</div>` : ""}
+    ${w.photo_path ? `<img src="${PHOTO(esc(w.photo_path))}" alt="Photo from ${esc(name)}">` : ""}
+    <label class="sr" for="rBody">Your reply to ${esc(name)}</label>
+    <textarea class="field" id="rBody" maxlength="800" placeholder="Write back to ${esc(name)}…"></textarea>
+    <div class="chips" role="group" aria-label="Quick replies">${["Thank you so much 💗", "You're the best 🥰", "Love you! 🎀", "This made my day ✨"].map(c => `<button type="button" class="chip" data-rchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+    <div class="row"><button class="btn" data-act="replySend" data-id="${w.id}">Send reply</button><button class="btn ghost" data-act="replyLater" data-id="${w.id}">Later</button></div></div>`);
+  if (!reduceMotion) burst(18);
+}
+document.addEventListener("click", e => { const c = e.target.closest("[data-rchip]"); if (!c) return; const ta = $("#rBody"); if (ta){ ta.value = (ta.value ? ta.value.replace(/\s+$/, "") + " " : "") + c.dataset.rchip; ta.focus(); } });
+async function sendReply(id, btn){
+  const ta = $("#rBody"); const body = ta ? ta.value.trim() : ""; if (!body){ toast("Write a little something first 💗"); return; }
+  btn.disabled = true;
+  try{ await rpc("bday_reply", {p_wish:id, p_body:body, p_device:S.dev, p_key:S.key}); markWSeen(id); closeSheet(); burst(60); toast("Sent! They'll get a notification 💗"); await refresh(); setTimeout(checkPopups, 1500); }
+  catch(err){ btn.disabled = false; toast("Couldn't send, try again."); }
+}
+function wishPopup(){
+  const seen = wseen();
+  const next = S.posts.filter(p => !p.is_her && !p.reply_to && (p.kind === "wish" || p.kind === "photo") && !seen.has(p.id) && !repliesOf(p.id).length)
+    .sort((a, b) => a.created_at < b.created_at ? -1 : 1)[0];
+  if (next) openReply(next);
+}
+let lastMine = 0;
+async function replyPopupForGuest(){
+  if (Date.now() - lastMine < 20000) return; lastMine = Date.now();
+  let rows = []; try{ rows = await rpc("bday_my_replies", {p_device:S.dev}) || []; }catch(_){ return; }
+  S.mineParents = new Set(rows.map(r => r.parent_id));
+  const seen = wseen(), fresh = rows.find(r => !seen.has(r.reply_id));
+  if (!fresh || sheetOpen) return;
+  const k = S.posts.find(x => x.id === fresh.reply_id); if (!k) return;
+  markWSeen(fresh.reply_id);
+  sheet(`<div class="grab"></div><div class="pop-emoji" aria-hidden="true">💗</div><h2>${esc(herName())} replied to your wish</h2><div class="wishpop"><div class="quote">${esc(k.body)}</div></div>
+    <div class="row"><button class="btn" data-act="closeSheet">Aww 🥰</button></div>`);
+  burst(40); feedDyn();
+}
 function checkPopups(){
   if (sheetOpen || !S.loaded) return;
+  const w = $("#welcome"); if (w && w.classList.contains("on")) return;
+  if (checkSchedulePopups()) return;
+  if (S.role === "her") wishPopup(); else if (S.role !== "admin") replyPopupForGuest();
+}
+function checkSchedulePopups(){
+  if (sheetOpen || !S.loaded) return false;
   const now = Date.now(), seen = seenSet();
   const aud = S.role === "her" ? ["her", "all"] : ["guests", "all"];
   const due = S.schedule.filter(r => aud.includes(r.audience) && new Date(r.send_at).getTime() <= now && now - new Date(r.send_at).getTime() < 3 * 36e5 && !seen.has(r.id));
-  if (!due.length) return;
+  if (!due.length) return false;
   const r = due[due.length - 1]; due.forEach(x => seen.add(x.id)); store.set("b_seen", JSON.stringify([...seen].slice(-80)));
   const em = (r.title.match(/\p{Extended_Pictographic}/u) || ["💗"])[0], title = r.title.replace(/\p{Extended_Pictographic}️?/gu, "").trim();
   sheet(`<div class="grab"></div><div class="pop-emoji" aria-hidden="true">${em}</div><h2>${esc(title)}</h2><p>${esc(r.body)}</p>
     <div class="row"><button class="btn" data-act="popOpen" data-url="${esc(r.url || "")}">Take me there</button><button class="btn ghost" data-act="closeSheet">Later</button></div>`);
   if (!reduceMotion && S.role === "her") burst(26);
   if (navigator.vibrate) try{ navigator.vibrate([80, 40, 80]); }catch(_){}
+  return true;
 }
 
 /* ───────── push ───────── */
@@ -927,7 +987,7 @@ function maybeWelcome(){
     <p>Your road trip is ready, with little surprises waiting along the way.</p>
     <button class="btn big" id="wopen">Open your gift</button>`;
   w.classList.add("on");
-  $("#wopen").onclick = () => { store.set("b_welcomed", "1"); w.classList.remove("on"); burst(110); floatHearts(innerWidth / 2, innerHeight / 2, 12); };
+  $("#wopen").onclick = () => { store.set("b_welcomed", "1"); w.classList.remove("on"); burst(110); floatHearts(innerWidth / 2, innerHeight / 2, 12); setTimeout(checkPopups, 2500); };
   $("#wopen").focus();
 }
 
