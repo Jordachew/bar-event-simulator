@@ -995,7 +995,7 @@ function maybeWelcome(){
 async function initRole(){
   const q = new URLSearchParams(location.search).get("k");
   if (new URLSearchParams(location.search).get("reset")){ ["b_welcomed","b_open","b_seen","b_cache"].forEach(k => store.del(k)); }
-  if (q){ store.set("b_k", q); history.replaceState(null, "", location.pathname + location.hash); }
+  if (q){ store.set("b_k", q); if (standalone) history.replaceState(null, "", location.pathname + location.hash); }
   S.key = store.get("b_k") || "";
   if (!S.key){ S.role = "guest"; return; }
   try{
