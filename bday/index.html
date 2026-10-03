@@ -1002,7 +1002,7 @@ async function initRole(){
     const r = await rpc("bday_role", {p_key:S.key});
     if (r === "guest"){ store.del("b_k"); S.key = ""; }
     S.role = r; store.set("b_role", r);
-  }catch(_){ S.role = store.get("b_role") || "guest"; }
+  }catch(_){ S.role = store.get("b_role") || "guest"; S.roleErr = true; }
 }
 function applyManifestKey(){
   // Lets the Home Screen icon reopen with the signed-in link (iOS keeps separate storage for installed apps).
@@ -1034,7 +1034,7 @@ if ("serviceWorker" in navigator){
   if ("serviceWorker" in navigator){
     try{ await navigator.serviceWorker.register("sw.js"); if (pushOK && Notification.permission === "granted") subscribePush().catch(() => {}); }catch(_){}
   }
-  setInterval(() => { if (!document.hidden) refresh(); }, 25000);
+  setInterval(async () => { if (document.hidden) return; if (S.roleErr && S.key){ S.roleErr = false; const was = S.role; await initRole(); if (S.role !== was){ renderTabs(); applyManifestKey(); go(S.tab); } } refresh(); }, 25000);
   setInterval(() => { if (S.tab === "journey" && S.loaded && !document.hidden){ const st = $("#status"); if (st) st.innerHTML = statusHTML(); } }, 30000);
 })();
 </script>
